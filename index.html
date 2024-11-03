@@ -3,22 +3,182 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Runway Grid Animation</title>
+    <title>Real-time Runway Occupancy Checker</title>
     <script src="https://unpkg.com/@rive-app/canvas@1.0.102"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <style>
-        body { display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        #canvas { width: 800px; height: 600px; }
+        #canvas { width: 100%; height: 400px; }
     </style>
 </head>
-<body>
-    <canvas id="canvas"></canvas>
+<body class="bg-gray-100">
+    <div class="container mx-auto px-4 py-8">
+        <h1 class="text-3xl font-bold mb-4">Real-time Runway Occupancy Checker</h1>
+        <div class="mb-4">
+            <input type="password" id="apiKey" placeholder="Enter your RapidAPI key" class="w-full p-2 border border-gray-300 rounded mb-2">
+            <button id="startStopBtn" class="w-full p-2 bg-blue-500 text-white rounded hover:bg-blue-600">Start</button>
+        </div>
+        <div id="error" class="hidden mb-4 p-4 bg-red-100 text-red-700 rounded-lg"></div>
+        <canvas id="canvas" class="w-full mb-4 rounded-lg shadow-lg"></canvas>
+        <div id="runwayStatus" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+    </div>
+
     <script>
+        const apiKeyInput = document.getElementById('apiKey');
+        const startStopBtn = document.getElementById('startStopBtn');
+        const errorDiv = document.getElementById('error');
+        const runwayStatusDiv = document.getElementById('runwayStatus');
+        let isRunning = false;
+        let intervalId = null;
+        let riveInstance = null;
+
+        const runwayPolygons = {
+            "13-31-large": {"type":"Polygon","coordinates":[[[-73.85764676662993,40.771467338809344],[-73.84804547449599,40.765561762716516],[-73.844969201588,40.76862739089154],[-73.85661731960377,40.77246376176046],[-73.87301927178385,40.78026954329542],[-73.87294734581504,40.78039662533621],[-73.87300428720705,40.7804510889938],[-73.87341312535612,40.78063874380493],[-73.87377450592672,40.78075458584769],[-73.87481502184035,40.78118818495133],[-73.87842491511465,40.782754786736206],[-73.88470953985141,40.787074107105184],[-73.88704266487274,40.784422342847904],[-73.8788604376717,40.781496919954634],[-73.87832559189815,40.78159087720758],[-73.87633248472098,40.78053364984794],[-73.87607524367145,40.78024786211131],[-73.87547193935383,40.780415756138666],[-73.87461784732768,40.78005434488878],[-73.87435225306552,40.77950023074854],[-73.87395814137129,40.779320429423365],[-73.87344137234396,40.77906267603274],[-73.87295913629556,40.778849508055515],[-73.87239785261113,40.778633294688774],[-73.87178735374042,40.778374397719716],[-73.8717995932344,40.778205715281985],[-73.87102116144047,40.77786834912041],[-73.8688334858072,40.7769817820552],[-73.86884436072332,40.77679923682956],[-73.86812296850042,40.77648628407553],[-73.86777172506268,40.77631977337825],[-73.86621507852311,40.7754572475948],[-73.86579345556507,40.77563268921162],[-73.86319166730686,40.77394744042931],[-73.86274489761509,40.77411456963236],[-73.8595974649532,40.77226635399171],[-73.85913511168488,40.77243602772464],[-73.85875071143846,40.77210901945426],[-73.8583963084923,40.77183136993577],[-73.85800116957608,40.77173881983822],[-73.85764676662993,40.771467338809344]]]},
+            "13-31-small": {"type":"Polygon","coordinates":[[[-73.85682757751263,40.77223149639971],[-73.8567067721492,40.772448844240756],[-73.87314618884822,40.78019641818304],[-73.87301308069907,40.780397540462474],[-73.87354599944919,40.78061730613638],[-73.87842928423208,40.782707183855166],[-73.87902134935675,40.7820600591283],[-73.87892352990133,40.781564965471745],[-73.87829542602955,40.78167412029583],[-73.87633712353934,40.7806165794251],[-73.87603851678091,40.78030470305771],[-73.87540011612467,40.78045284451477],[-73.87454033459574,40.78005520090923],[-73.87442152626924,40.77963776267359],[-73.87169798318712,40.77845254839599],[-73.87169798318712,40.778238126565185],[-73.86873486143463,40.777020698649494],[-73.86869882268827,40.77682966420764],[-73.86734555484796,40.77625032873121],[-73.86627182234956,40.775526149551126],[-73.8658304190431,40.77569086515143],[-73.8632480628742,40.774024260803884],[-73.86274866881193,40.77421530331287],[-73.85965404493484,40.77234846442238],[-73.85910316694958,40.772504421465584],[-73.85866555359637,40.7721301239464],[-73.85834120487526,40.77188059109514],[-73.85792418509173,40.771751925352646],[-73.85756894601649,40.77148289617722],[-73.85682757751263,40.77223149639971]]]},
+            "04-22-large": {"type":"Polygon","coordinates":[[[-73.88260668692647,40.76926628189557],[-73.88305656428554,40.76959388932627],[-73.88210984592486,40.770323978748564],[-73.88175637085752,40.77075266932252],[-73.8801982281782,40.77264975900272],[-73.8796659271821,40.77330481798475],[-73.87799383902559,40.7752120522089],[-73.87789346580188,40.77542530327071],[-73.87786558435093,40.775606882842936],[-73.8772084728059,40.77625516267196],[-73.87694917531157,40.77656553287957],[-73.87638695071543,40.77699219554029],[-73.87662115490383,40.777289894301504],[-73.87531461767509,40.77826772402523],[-73.87550699968665,40.77857175095025],[-73.87517176234682,40.778652576260356],[-73.87496383717607,40.778905806148316],[-73.87475290454417,40.77916969099968],[-73.87451205788858,40.77945834450696],[-73.87455017757114,40.78003352744179],[-73.87416378329605,40.780537351649315],[-73.872447184764,40.78199506721327],[-73.87216678380888,40.782346649445714],[-73.87036658553973,40.784737500998716],[-73.869823874014,40.784837949107384],[-73.86980880073038,40.78526028663896],[-73.86678460228981,40.78890752966075],[-73.86461197520518,40.791074342710516],[-73.86740475528023,40.792197336679294],[-73.87111904525369,40.78573659400925],[-73.87532437388877,40.780447044566046],[-73.8760552528607,40.78019404535817],[-73.87629887918483,40.779883065845155],[-73.87651532418566,40.779636989192085],[-73.87686039717899,40.77921184783543],[-73.87870887423037,40.776977329523476],[-73.87912767890903,40.77670093339401],[-73.87902879641645,40.7763679563121],[-73.87959306918671,40.77582440186467],[-73.87987078171902,40.77571606357765],[-73.87991496325873,40.77545158995798],[-73.88219980065652,40.77275479136523],[-73.88215781571098,40.77257461697434],[-73.88262804709747,40.77242623769757],[-73.88358815630156,40.77098902082531],[-73.88389596386783,40.770772931318305],[-73.88431581281876,40.769922903977516],[-73.88478044621193,40.76993562269362],[-73.88487001409557,40.7694311117628],[-73.89160272270233,40.76274361172577],[-73.88767908825876,40.76074878619474],[-73.88260668692647,40.76926628189557]]]},
+            "04-22-small": {"type":"Polygon","coordinates":[[[-73.87105381826224,40.785709281445975],[-73.87486352393285,40.78090919022836],[-73.87524536306572,40.78043903242826],[-73.87593931418283,40.78019644232768],[-73.8763973323179,40.7796106429266],[-73.87680043293851,40.7791205392401],[-73.87831648876208,40.777293108216696],[-73.87862874980652,40.776845980627314],[-73.87902617295379,40.776699803647375],[-73.87891262348255,40.77646763954701],[-73.8793383373176,40.775865356296634],[-73.87978685772671,40.77565468626074],[-73.87976982530583,40.77536662615063],[-73.88185924963814,40.773031859002856],[-73.88204666060001,40.772742920510495],[-73.88202923918237,40.77249413133242],[-73.88258423576613,40.77234523433347],[-73.8834012253818,40.771008198305765],[-73.88386441300325,40.7706540406013],[-73.88420905946148,40.76986762992087],[-73.88475851784469,40.76986582135544],[-73.88482091669597,40.7694340785726],[-73.88379486283824,40.768882712628596],[-73.88272649582326,40.76921063526359],[-73.8831896834447,40.76955805467156],[-73.88222214695307,40.77035951328901],[-73.88030019919633,40.772674354653844],[-73.87812240117121,40.77521721324803],[-73.87801510905466,40.77542448312445],[-73.87798664379879,40.775591956712475],[-73.87728394825868,40.77632306341448],[-73.87708688110594,40.776561834280955],[-73.87652078834424,40.7769354085014],[-73.876774786008,40.77726371519557],[-73.87604690471034,40.77791153950906],[-73.87545132402037,40.77825144792064],[-73.87563076913426,40.77860288151385],[-73.87522568665268,40.77867417879034],[-73.87476170954201,40.77921488147456],[-73.874582159469,40.77943540333021],[-73.87461742583511,40.780085346679186],[-73.87428204593414,40.780541076315586],[-73.8725934509792,40.78193101710511],[-73.87052136861676,40.78480441388368],[-73.86986439155005,40.784901815087096],[-73.8698919570212,40.78515923186532],[-73.87105381826224,40.785709281445975]]]}
+        };
+
         new rive.Rive({
             src: 'https://cdn.prod.website-files.com/66f95b8d58862a1a99940b26/6727c6fa0ec2d7131fc63a81_runway_grid.riv',
             canvas: document.getElementById('canvas'),
             autoplay: true,
-            stateMachines: 'State Machine 1'
+            stateMachines: 'State Machine 1',
+            onLoad: (_) => {
+                riveInstance = _;
+            }
         });
+
+        function updateRunwayOccupancy(data) {
+            const poly1331Large = turf.polygon(runwayPolygons["13-31-large"].coordinates);
+            const poly1331Small = turf.polygon(runwayPolygons["13-31-small"].coordinates);
+            const poly0422Large = turf.polygon(runwayPolygons["04-22-large"].coordinates);
+            const poly0422Small = turf.polygon(runwayPolygons["04-22-small"].coordinates);
+
+            const occupying1331 = [];
+            const occupying0422 = [];
+            const imminent1331 = [];
+            const imminent0422 = [];
+
+            for (const aircraft of data) {
+                if (typeof aircraft.lat === 'number' && typeof aircraft.lon === 'number' && !aircraft.hex.startsWith('~')) {
+                    const pt = turf.point([aircraft.lon, aircraft.lat]);
+                    const isOnGround = aircraft.alt_baro ===    'ground' || (typeof aircraft.alt_baro === 'number' && aircraft.alt_baro <= 0);
+
+                    if (isOnGround) {
+                        if (turf.booleanPointInPolygon(pt, poly1331Small)) {
+                            occupying1331.push(aircraft);
+                        } else if (turf.booleanPointInPolygon(pt, poly1331Large)) {
+                            imminent1331.push(aircraft);
+                        }
+
+                        if (turf.booleanPointInPolygon(pt, poly0422Small)) {
+                            occupying0422.push(aircraft);
+                        } else if (turf.booleanPointInPolygon(pt, poly0422Large)) {
+                            imminent0422.push(aircraft);
+                        }
+                    }
+                }
+            }
+
+            updateRiveAnimation(occupying1331, occupying0422, imminent1331, imminent0422);
+            updateRunwayStatus(occupying1331, occupying0422, imminent1331, imminent0422);
+        }
+
+        function updateRiveAnimation(occupying1331, occupying0422, imminent1331, imminent0422) {
+            if (riveInstance) {
+                const inputs = riveInstance.stateMachineInputs('State Machine 1');
+                inputs.forEach(input => {
+                    switch (input.name) {
+                        case 'rwy13-occupied':
+                        case 'rwy31-occupied':
+                            input.value = occupying1331.length > 0;
+                            break;
+                        case 'rwy04-occupied':
+                        case 'rwy22-occupied':
+                            input.value = occupying0422.length > 0;
+                            break;
+                        case 'rwy13-occupied-soon':
+                        case 'rwy31-occupied-soon':
+                            input.value = imminent1331.length > 0;
+                            break;
+                        case 'rwy04-occupied-soon':
+                        case 'rwy22-occupied-soon':
+                            input.value = imminent0422.length > 0;
+                            break;
+                    }
+                });
+            }
+        }
+
+        function updateRunwayStatus(occupying1331, occupying0422, imminent1331, imminent0422) {
+            const statusHtml = `
+                <div class="bg-white p-4 rounded-lg shadow">
+                    <h2 class="text-xl font-bold mb-2">Runway 13-31</h2>
+                    <p class="mb-1">Status: <span class="${occupying1331.length > 0 ? 'text-red-600 font-bold' : 'text-green-600'}">${occupying1331.length > 0 ? 'OCCUPIED' : 'CLEAR'}</span></p>
+                    <p>Imminent: ${imminent1331.length}</p>
+                </div>
+                <div class="bg-white p-4 rounded-lg shadow">
+                    <h2 class="text-xl font-bold mb-2">Runway 04-22</h2>
+                    <p class="mb-1">Status: <span class="${occupying0422.length > 0 ? 'text-red-600 font-bold' : 'text-green-600'}">${occupying0422.length > 0 ? 'OCCUPIED' : 'CLEAR'}</span></p>
+                    <p>Imminent: ${imminent0422.length}</p>
+                </div>
+            `;
+            runwayStatusDiv.innerHTML = statusHtml;
+        }
+
+        async function fetchData() {
+            const apiKey = apiKeyInput.value;
+            if (!apiKey) {
+                showError('Please enter your API key');
+                return;
+            }
+
+            const options = {
+                method: 'GET',
+                url: 'https://adsbexchange-com1.p.rapidapi.com/v2/lat/40.77713984614967/lon/-73.86767545771623/dist/5/',
+                headers: {
+                    'x-rapidapi-key': apiKey,
+                    'x-rapidapi-host': 'adsbexchange-com1.p.rapidapi.com'
+                }
+            };
+
+            try {
+                const response = await axios.request(options);
+                if (response.data && Array.isArray(response.data.ac)) {
+                    updateRunwayOccupancy(response.data.ac);
+                } else {
+                    throw new Error('Invalid data structure received from API');
+                }
+            } catch (error) {
+                showError(`API Error: ${error.message}`);
+            }
+        }
+
+        function showError(message) {
+            errorDiv.textContent = message;
+            errorDiv.classList.remove('hidden');
+        }
+
+        function hideError() {
+            errorDiv.classList.add('hidden');
+        }
+
+        startStopBtn.addEventListener('click', () => {
+            if (isRunning) {
+                clearInterval(intervalId);
+                startStopBtn.textContent = 'Start';
+                isRunning = false;
+            } else {
+                fetchData();
+                intervalId = setInterval(fetchData, 1000);
+                startStopBtn.textContent = 'Stop';
+                isRunning = true;
+            }
+        });
+
+        apiKeyInput.addEventListener('input', hideError);
     </script>
 </body>
 </html>
