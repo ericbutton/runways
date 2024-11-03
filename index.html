@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Runway Grid Animation</title>
+    <script src="https://unpkg.com/@rive-app/canvas@1.0.102"></script>
+    <style>
+        body { display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        #canvas { width: 800px; height: 600px; }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <script>
+        new rive.Rive({
+            src: 'https://cdn.prod.website-files.com/66f95b8d58862a1a99940b26/6727c6fa0ec2d7131fc63a81_runway_grid.riv',
+            canvas: document.getElementById('canvas'),
+            autoplay: true,
+            stateMachines: 'State Machine 1'
+        });
+    </script>
+</body>
+</html>
